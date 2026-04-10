@@ -17,13 +17,15 @@ The project consists of two main components:
 
 ---
 
-## 🛠 Manual Build
+## 🛠 Usage
 
 ```bash
 # Compile the scanner
 g++ port_swapper.cpp -o port_swapper
+
+# Run the scanner
 ./port_swapper <IP> <PORT>
 
 # Use dns-resolver to use domain names instead of IP-address
 chmod +x dns-resolver
-./port_swapper `dns-resolver <domain name>` <PORT>
+./port_swapper `./dns-resolver <domain name>` <PORT>

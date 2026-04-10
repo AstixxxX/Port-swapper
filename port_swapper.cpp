@@ -109,91 +109,6 @@ void task(const std::string& scan_ip, range port_range)
     }
 }
 
-int port_is_open(const std::string& scan_ip, int port)
-{
-    int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (client_fd == -1)
-    {
-        perror("Socket creation failed");
-        return -1;
-    }
-
-    if (fcntl(client_fd, F_SETFL, fcntl(client_fd, F_GETFL, 0) | O_NONBLOCK) == -1)
-    {
-        perror("Socket setup failed");
-        close(client_fd);
-        return -1;
-    } 
-
-    struct sockaddr_in server_addr;
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-
-    // One check in the first time maybe enouth???
-    if (inet_pton(AF_INET, scan_ip.c_str(), &server_addr.sin_addr) != 1)
-    {
-        perror("Invalid IP-address");
-        close(client_fd);
-        return -1;
-    }
-
-    // We must check errno value to tell, why connect() failed
-    connect(client_fd, (const struct sockaddr*)&server_addr, sizeof(server_addr)); // mb check stat?
-
-    if (errno != EINPROGRESS)
-    {
-        perror("Server connection failed");
-        return -1;
-    }
-
-    struct pollfd polling;
-    polling.fd = client_fd;
-    polling.events = POLLOUT;
-
-    int fd_cnt = poll(&polling, 1, 300); // 300ms waiting of one fd
-
-    if (fd_cnt == -1)
-    {
-        perror("Socket polling failed");
-        close(polling.fd);
-        return -1;
-    }
-    else if (fd_cnt == 0)
-    {
-        close(polling.fd);
-        return 0; 
-    }
-    
-    if (polling.revents & POLLOUT)
-    {
-        int err;
-        socklen_t err_len = sizeof(err);
-        getsockopt(polling.fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
-        close(polling.fd);
-        return err == 0 ? 1 : 0;
-    }
-
-    close(client_fd);
-    return 0;
-}
-
-void scan_task(const std::string& scan_ip, const int port_begin, const int port_end)
-{
-    for (int port = port_begin; port <= port_end; ++port)
-    {
-        if (port_is_open(scan_ip, port))
-        {
-            std::lock_guard<std::mutex> lock(mtx);
-            open_ports_list.push_back(port);
-        }
-    }
-
-    ++task_finished_cnt;
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-}
-
 int main(int argc, char** argv)
 {
     std::string scan_ip;
@@ -220,7 +135,8 @@ int main(int argc, char** argv)
             }
 
             std::cout << "Scanning IP-address: " << scan_ip << std::endl;
-            std::cout << "Port " << port << " is " << (port_is_open(scan_ip, port) == 1 ? "open" : "closed")  << std::endl;
+            task(scan_ip, {port, port});
+            std::cout << "Port " << port << " is " << (!open_ports_list.empty() ? "open" : "closed")  << std::endl;
             return 0;
         }
     }
@@ -251,31 +167,31 @@ int main(int argc, char** argv)
     // }
 
     //Single-core mode
-    // range port_range{1, 1024};
-    // task(scan_ip, port_range);
+    range port_range{1, 1024};
+    task(scan_ip, port_range);
 
     // Multi-core mode
-    int threads_cnt = std::thread::hardware_concurrency();
-    std::vector<std::thread> thread_pool;
-    range port_range{1, 1024};
+    // int threads_cnt = std::thread::hardware_concurrency();
+    // std::vector<std::thread> thread_pool;
+    // range port_range{1, 1024};
 
-    int thread_port_begin = 1;
-    int thread_port_end = port_range.end / threads_cnt;
+    // int thread_port_begin = 1;
+    // int thread_port_end = port_range.end / threads_cnt;
 
-    for (int i = 1; i <= threads_cnt; ++i)
-    {
-        thread_pool.emplace_back(scan_task, scan_ip, thread_port_begin, thread_port_end);
-        // std::cout << thread_port_begin << ' ' << thread_port_end << std::endl;
+    // for (int i = 1; i <= threads_cnt; ++i)
+    // {
+    //     thread_pool.emplace_back(scan_task, scan_ip, thread_port_begin, thread_port_end);
+    //     // std::cout << thread_port_begin << ' ' << thread_port_end << std::endl;
 
-        thread_port_begin = thread_port_end + 1;
-        thread_port_end += port_range.end / threads_cnt;
+    //     thread_port_begin = thread_port_end + 1;
+    //     thread_port_end += port_range.end / threads_cnt;
 
-        if (i + 1 == threads_cnt)
-            thread_port_end += port_range.end % threads_cnt;
-    }
+    //     if (i + 1 == threads_cnt)
+    //         thread_port_end += port_range.end % threads_cnt;
+    // }
 
-    for (std::thread& thread : thread_pool)
-        thread.join();
+    // for (std::thread& thread : thread_pool)
+    //     thread.join();
     
     // Report 
     std::sort(open_ports_list.begin(), open_ports_list.end());
