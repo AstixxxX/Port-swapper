@@ -1,0 +1,1 @@
+nslookup $1 | grep -v "::" | grep -i address | tail -n 1 | awk '{ print $2 }'
