@@ -1,10 +1,29 @@
-# Port Swapper - primary port scanner
-## This tool is not design for offencive tasks!!! Only for education and administration purposes
-## Is the younger brother of nmap which show PoC of port scanning
-## dns-resolver is the basic script which convert domain name to ip address. Based on nslookup
+# Port Swapper
 
-### Build manually: 
-### In project dir : g++ port_swapper.cpp -o port_swapper
-### Usage: ./port_swapper <IP> | ./port_swapper <IP> <PORT>
-###         chmod +x dns-resolver
-###         ./port_swapper `./dns-resolver <domain name>`          
+**Primary port scanner**
+
+> ⚠️ **Disclaimer**  
+> This tool is **not designed for offensive tasks**. It is intended **only for educational and system administration purposes**.
+
+---
+
+## 📖 About
+
+**Port Swapper** is the "younger brother" of **Nmap** — a lightweight **Proof of Concept (PoC)** that demonstrates how port scanning works at the system level.
+
+The project consists of two main components:
+- `port_swapper` – scans TCP ports
+- `dns-resolver` – converts a domain name to an IP address (based on `nslookup`)
+
+---
+
+## 🛠 Manual Build
+
+```bash
+# Compile the scanner
+g++ port_swapper.cpp -o port_swapper
+./port_swapper <IP> <PORT>
+
+# Use dns-resolver to use domain names instead of IP-address
+chmod +x dns-resolver
+./port_swapper `dns-resolver <domain name>` <PORT>
