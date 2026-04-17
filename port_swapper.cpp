@@ -21,7 +21,7 @@ int socket_deployment()
 
     if (sockfd == -1)
     {
-        perror("Socket creation failed");
+        perror("Socket creation failed - open fd limits reached");
         return -1;
     }
 
@@ -69,7 +69,7 @@ void task(const std::string& scan_ip, range port_range)
         port_tasks.emplace_back(pollfd{client_fd, POLLOUT, 0});
     }
 
-    long finished_time = get_current_time() + 3; // Performance border. 3 seconds of total work for socket proccessing 
+    long finished_time = get_current_time() + 2; // Performance border. 2 seconds of total work for socket proccessing 
 
     while (finished_time > get_current_time())
     {
@@ -143,31 +143,12 @@ int main(int argc, char** argv)
 
     std::cout << "Scanning IP-address: " << scan_ip << std::endl;
 
-    // int prev_stat = 0;
-    // std::cout << "Total ports processed:   " << prev_stat << '%';
-    // fflush(stdout);
-
-    // Some stat utilization
-    // for (int port = 1; port <= max_port; ++port)
-    // {
-    //     if (port_is_open(scan_ip, port) == 1)
-    //         open_ports_list.push_back(port);
-    //     int stat = int(float(port) / float(max_port) * 100);
-    //     if (stat != prev_stat)
-    //     {
-    //         if (stat < 10)
-    //             std::cout << "\b\b" << stat << '%';
-    //         else if (stat < 100)
-    //             std::cout << "\b\b\b" << stat << '%';
-    //         else
-    //             std::cout << "\b\b\b\b" << stat << '%' << std::endl;
-    //         prev_stat = stat;
-    //         fflush(stdout);
-    //     }
-    // }
-
     //Single-core mode
-    range port_range{1, 1024};
+    range port_range{1, 512};
+    task(scan_ip, port_range);
+
+    // Divide on two groups for awoid limit of open file descriptors for one process
+    port_range = {513, 1024};
     task(scan_ip, port_range);
 
     // Multi-core mode
