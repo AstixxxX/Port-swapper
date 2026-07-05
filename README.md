@@ -1,6 +1,4 @@
-# Port Swapper
-
-**Primary port scanner**
+# Port Swapper - **Primary port scanner**
 
 > ⚠️ **Disclaimer**  
 > This tool is **not designed for offensive tasks**. It is intended **only for educational and system administration purposes**.
