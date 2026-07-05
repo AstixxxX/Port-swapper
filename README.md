@@ -1,4 +1,4 @@
-# Port Swapper - **Primary port scanner**
+# Port Swapper - *Primary port scanner*
 
 > ⚠️ **Disclaimer**  
 > This tool is **not designed for offensive tasks**. It is intended **only for educational and system administration purposes**.
@@ -7,7 +7,7 @@
 
 ## 📖 About
 
-**Port Swapper** is the "younger brother" of **Nmap** — a lightweight **Proof of Concept (PoC)** that demonstrates how port scanning works at the system level.
+**Port Swapper** is the "younger brother" of **Nmap** — a lightweight **Proof of Concept** that demonstrates how port scanning works at the system level.
 
 
 ---
