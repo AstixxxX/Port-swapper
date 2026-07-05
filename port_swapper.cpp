@@ -1,33 +1,70 @@
 #include <iostream>
-#include <iostream>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/poll.h>
 #include <vector>
-#include <thread>
-#include <mutex>
 #include <algorithm>
-#include <atomic>
-#include <chrono>
-std::mutex mtx;
+#include <netdb.h>
+
+#define DEBUG_PRINT(msg) std::cerr << msg << std::endl // use it? or not?
+
 std::vector<int> open_ports_list;
-std::atomic<int> task_finished_cnt;
+
+struct sockaddr_in server_addr;
+
+// return IPv4 address in a string 
+std::string dns_resolving(const std::string& domain) 
+{
+    std::string answer;
+    struct addrinfo hints{}, *result, *ptr;
+    char ip[INET_ADDRSTRLEN]; 
+    
+    hints.ai_family = AF_INET;      
+    hints.ai_socktype = SOCK_DGRAM;  
+    
+    // add timeout!
+    int status = getaddrinfo(domain.c_str(), NULL, &hints, &result);
+    
+    if (status != 0 && result != nullptr) 
+        return "";
+  
+    struct sockaddr_in* ipv4 = (struct sockaddr_in*)result->ai_addr;
+    void* address = &(ipv4->sin_addr);
+    inet_ntop(result->ai_family, address, ip, sizeof(ip));
+
+    freeaddrinfo(result);
+    return std::string(ip);
+}
+
+bool ip_address_check(const std::string& scan_ip)
+{
+    server_addr.sin_family = AF_INET;
+    
+    if (inet_pton(AF_INET, scan_ip.c_str(), &server_addr.sin_addr) != 1)
+    {
+        // perror("Invalid IP-address");
+        return false; 
+    }
+
+    return true;
+}
 
 int socket_deployment()
 {
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0); // TCP-connection with IPv4
 
     if (sockfd == -1)
     {
-        perror("Socket creation failed - open fd limits reached");
+        // perror("Socket creation failed (open fd limits reached)");
         return -1;
     }
 
+    // Non-block socket mode enable
     if (fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK) == -1)
     {
-        perror("Socket modification failed");
+        // perror("Socket modification failed (nonblock socket mode)");
         close(sockfd);
         return -1;
     }
@@ -35,99 +72,126 @@ int socket_deployment()
     return sockfd;
 }
 
+// port-range struct
 struct range
 {
     int begin;
     int end;
 };
 
-// get current time from unix epoch in seconds
-long get_current_time()
+bool task(const std::string& scan_ip, range port_range)
 {
-    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
-void task(const std::string& scan_ip, range port_range)
-{
-    struct sockaddr_in server_addr;
-
     server_addr.sin_family = AF_INET;
-
+    
     if (inet_pton(AF_INET, scan_ip.c_str(), &server_addr.sin_addr) != 1)
     {
-        perror("Invalid IP-address");
-        return; // add some signalling
+        // perror("Invalid IP-address");
+        return false; 
     }
 
     std::vector<pollfd> port_tasks;
 
-    for (int port = port_range.begin; port <= port_range.end; ++port)
+    // think about all port scaning (some socket max limit)
+
+    int max_open_sockets = sysconf(_SC_OPEN_MAX) - 3; // stdin, stdout, stderr open by default 
+    int rounds = (port_range.end - port_range.begin + 1) / max_open_sockets + ((port_range.end - port_range.begin + 1) % max_open_sockets != 0 ? 1 : 0);
+    int port_shift = (port_range.end - port_range.begin + 1) / rounds;
+
+    for (int round = 0; round < rounds; ++rounds)
     {
-        int client_fd = socket_deployment();
-        server_addr.sin_port = htons(port);
-        connect(client_fd, (const struct sockaddr*)&server_addr, sizeof(server_addr));
-        port_tasks.emplace_back(pollfd{client_fd, POLLOUT, 0});
-    }
-
-    long finished_time = get_current_time() + 2; // Performance border. 2 seconds of total work for socket proccessing 
-
-    while (finished_time > get_current_time())
-    {
-        int result = poll(port_tasks.data(), port_tasks.size(), 1000);
-
-        if (result < 1)
+        for (int port = port_range.begin + round * port_shift; port <= std::min(port_range.end, port_range.begin + (round + 1) * port_shift); ++port)
         {
-            if (result == -1)
-                perror("Socket polling failed");
-
-            for (const pollfd& port_task : port_tasks)
-                close(port_task.fd);
-
-            break;
+            int client_fd = socket_deployment();
+            server_addr.sin_port = htons(port);
+            
+            connect(client_fd, (const struct sockaddr*)&server_addr, sizeof(server_addr));
+            port_tasks.emplace_back(pollfd{client_fd, POLLOUT, 0});
         }
-        else
-        {
-            for (int task = 0; task < port_tasks.size() && result > 0; ++task)
+        
+        int result = 1;
+
+        while (result > 0)
+        {   
+            result = poll(port_tasks.data(), port_tasks.size(), 1000);
+            
+            // std::cout << result << std::endl;
+
+            if (result < 1)
             {
-                if (port_tasks[task].revents & POLLOUT)
+                // if (result == -1)
+                //     perror("Socket polling failed");
+
+                // close return errno EBADF when fd == -1
+                for (const pollfd& port_task : port_tasks)
+                    close(port_task.fd);
+
+                // break;
+                return false;
+            }
+            else
+            {
+                int cur_result = result;
+
+                for (int task = 0; task < port_tasks.size() && cur_result > 0; ++task)
                 {
-                    int err;
-                    socklen_t err_len = sizeof(err);
-                    getsockopt(port_tasks[task].fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
+                    if (port_tasks[task].fd == -1)
+                        continue;
 
-                    if (err == 0)
+                    if (port_tasks[task].revents & POLLOUT)
                     {
-                        // std::lock_guard<std::mutex> lock(mtx); // if multithreading enable
-                        open_ports_list.push_back(port_range.begin + task);
-                    }
+                        int err;
+                        socklen_t err_len = sizeof(err);
+                        getsockopt(port_tasks[task].fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
 
-                    --result;
-                    close(port_tasks[task].fd);
+                        if (err == 0)
+                        {
+                            // std::lock_guard<std::mutex> lock(mtx); // if multithreading enable
+                            open_ports_list.emplace_back(port_range.begin + task);
+                        }
+
+                        --cur_result;
+                        close(port_tasks[task].fd);
+                        port_tasks[task].fd = -1;
+                    }
                 }
             }
         }
     }
+
+    return true;
 }
 
 int main(int argc, char** argv)
 {
     std::string scan_ip;
-    int port;
-    // problems with dns-notes!
+    range port_range;
+
     if (argc == 1)
     {
         scan_ip = "127.0.0.1";
+        port_range = range{1, 1024};
     }
     else if (argc >= 2)
     {
         scan_ip = argv[1];
-        //inet_network for check the IP-address input
+        
+        if (!ip_address_check(scan_ip))
+        {
+            scan_ip = dns_resolving(scan_ip);
+            port_range = range{1, 1024};
+
+            if (scan_ip == "")
+            {
+                std::cerr << "Invalid IP-address or Domain Name" << std::endl;
+                return -1;
+            }
+        }
 
         if (argc == 3)
         {
-            port = atoi(argv[2]); // too bad :(
+            uint16_t port = std::stoi(argv[2]);
 
-            //check the correctness of port
+            // check the correctness of port
             if (port < 1 || port > 65535)
             {
                 std::cerr << "Invalid port number" << std::endl;
@@ -139,40 +203,15 @@ int main(int argc, char** argv)
             std::cout << "Port " << port << " is " << (!open_ports_list.empty() ? "open" : "closed")  << std::endl;
             return 0;
         }
+        else if (argc > 3)
+            return -1; // not implemented
     }
 
     std::cout << "Scanning IP-address: " << scan_ip << std::endl;
+    std::cout << "Scan range: " << port_range.begin << "-" << port_range.end << std::endl;
 
     //Single-core mode
-    range port_range{1, 512};
     task(scan_ip, port_range);
-
-    // Divide on two groups for awoid limit of open file descriptors for one process
-    port_range = {513, 1024};
-    task(scan_ip, port_range);
-
-    // Multi-core mode
-    // int threads_cnt = std::thread::hardware_concurrency();
-    // std::vector<std::thread> thread_pool;
-    // range port_range{1, 1024};
-
-    // int thread_port_begin = 1;
-    // int thread_port_end = port_range.end / threads_cnt;
-
-    // for (int i = 1; i <= threads_cnt; ++i)
-    // {
-    //     thread_pool.emplace_back(scan_task, scan_ip, thread_port_begin, thread_port_end);
-    //     // std::cout << thread_port_begin << ' ' << thread_port_end << std::endl;
-
-    //     thread_port_begin = thread_port_end + 1;
-    //     thread_port_end += port_range.end / threads_cnt;
-
-    //     if (i + 1 == threads_cnt)
-    //         thread_port_end += port_range.end % threads_cnt;
-    // }
-
-    // for (std::thread& thread : thread_pool)
-    //     thread.join();
     
     // Report 
     std::sort(open_ports_list.begin(), open_ports_list.end());
