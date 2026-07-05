@@ -7,7 +7,7 @@
 
 ## 📖 About
 
-**Port Swapper** is the "younger brother" of **Nmap** — a lightweight **Proof of Concept** that demonstrates how port scanning works at the system level.
+**Port Swapper** is the "younger brother" of **Nmap** — a lightweight **Proof of Concept** that demonstrates how port scanning works at total.
 
 
 ---
